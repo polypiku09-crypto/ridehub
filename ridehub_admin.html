@@ -534,7 +534,7 @@ async function loadOrders(){
     .order('created_at',{ascending:false})
     .limit(100);
   if(error){showToast('❌ โหลด orders ไม่ได้');return}
-  ordersCache = data||[];
+  ordersCache = (data||[]).filter(o=>o.status!=='pending');
   updateOrdersTabCounts();
   renderOrdersFiltered('');
   renderDashOrders(ordersCache.slice(0,5));
