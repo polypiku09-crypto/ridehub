@@ -875,8 +875,19 @@ async function doLogin(){
 
   showLoading(false);
 
-  // รวมข้อมูลจากหลายตาราง (join ใน app layer ตาม 3NF)
-  const planName = (subRow?.plans?.name || 'free').toLowerCase();
+  // เช็ค expired_at — ถ้า sub หมดอายุแล้วให้ expire และถือเป็น free
+  let planName = 'free';
+  if(subRow){
+    const isExpired = subRow.expired_at && new Date(subRow.expired_at) < new Date();
+    if(isExpired){
+      await db.from('subscriptions')
+        .update({status:'expired'})
+        .eq('rider_id', riderData.id)
+        .eq('status','active');
+    } else {
+      planName = (subRow.plans?.name || 'free').toLowerCase();
+    }
+  }
   currentRider = {
     id: authData.user.id,
     name: riderData.name,
@@ -1675,9 +1686,19 @@ function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
         .order('expired_at',{ascending:false}).limit(1).maybeSingle();
       const {count:orderCount} = await db.from('orders')
         .select('id',{count:'exact',head:true}).eq('rider_id',uid).eq('status','accepted');
+      // เช็ค expired_at สำหรับ session restore
+      let restoredPlan = 'free';
+      if(subRow){
+        const isExp = subRow.expired_at && new Date(subRow.expired_at) < new Date();
+        if(isExp){
+          db.from('subscriptions').update({status:'expired'}).eq('rider_id',uid).eq('status','active');
+        } else {
+          restoredPlan = (subRow.plans?.name||'free').toLowerCase();
+        }
+      }
       currentRider={
         ...rider,
-        plan: subRow?.plans?.name||'free',
+        plan: restoredPlan,
         orders: orderCount||0,
         recovery_code: authRow?.recovery_code||'—'
       };
