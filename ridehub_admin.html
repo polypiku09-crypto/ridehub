@@ -971,7 +971,7 @@ function deleteRiderItem(id,name){
 function deleteOrderItem(id){
   if(!can('deleteOrders')){showToast('❌ ไม่มีสิทธิ์ลบออเดอร์');return}
   const order = ordersCache.find(o=>o.id===id);
-  if(order && order.status==='pending'){
+  if(order && order.status==='pending' && currentRole !== 'superadmin'){
     showToast('❌ ไม่สามารถลบออเดอร์ที่ยังรอรับอยู่ได้');return;
   }
   delType='order';delId=id;
