@@ -530,6 +530,7 @@ function renderRiders(data){
 async function loadOrders(){
   const {data,error} = await db.from('orders')
     .select('*, riders(name)')
+    .neq('status','pending')
     .order('created_at',{ascending:false})
     .limit(100);
   if(error){showToast('❌ โหลด orders ไม่ได้');return}
