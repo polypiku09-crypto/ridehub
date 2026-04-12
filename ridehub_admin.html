@@ -1061,6 +1061,8 @@ function startAdminPendingTimer(orderId, createdAt){
       clearInterval(adminPendingTimers[orderId]);
       delete adminPendingTimers[orderId];
       removePendingRow(orderId);
+      // ลบออเดอร์ที่ไม่มีไรเดอร์รับออกจาก DB อัตโนมัติ
+      db.from('orders').delete().eq('id',orderId).eq('status','pending');
     }
   }
   tick();
