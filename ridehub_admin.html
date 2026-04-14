@@ -775,6 +775,9 @@ function openSendOrderModal(){
   document.getElementById('modal-sub').textContent='จำลอง Notification จาก platform';
   document.getElementById('modal-body').innerHTML=
     orderRow(1)+orderRow(2)+orderRow(3)+
+    `<div style="background:#e6f7ee;border-radius:8px;padding:10px;font-size:11px;color:#007a35;margin-top:4px">
+      ✅ ส่ง 3 Order พร้อมกัน — Rider app จะเห็นทันทีแบบ real-time
+    </div>`;
   document.getElementById('modal-save-btn').textContent='ส่ง 3 Orders';
   document.getElementById('modal-save-btn').onclick = sendTestOrder;
   document.getElementById('editModal').classList.add('open');
