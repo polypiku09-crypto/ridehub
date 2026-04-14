@@ -713,10 +713,21 @@ async function adminLogin(){
 
   currentRole = adminData.role;
 
+  // สร้าง session token และบันทึกลง admin_sessions
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(); // หมดอายุใน 8 ชั่วโมง
+  const {error:sessionErr} = await db.from('admin_sessions').insert([{
+    admin_id: adminData.id,
+    token: token,
+    expires_at: expiresAt
+  }]);
+  if(sessionErr){ showToast('❌ สร้าง session ไม่สำเร็จ: '+sessionErr.message); return; }
+
   sessionStorage.setItem('ridehub_admin', JSON.stringify({
     id: adminData.id,
     name: adminData.name,
-    role: adminData.role
+    role: adminData.role,
+    token: token
   }));
 
   showAdminPanel(adminData.name);
@@ -736,7 +747,14 @@ function showAdminPanel(name){
   document.getElementById('topbar-role-badge').innerHTML=badge;
 }
 
-function adminLogout(){
+async function adminLogout(){
+  const saved = sessionStorage.getItem('ridehub_admin');
+  if(saved){
+    try{
+      const s = JSON.parse(saved);
+      if(s.token) await db.from('admin_sessions').delete().eq('token', s.token);
+    } catch(e){}
+  }
   sessionStorage.removeItem('ridehub_admin');
   document.getElementById('admin-page').classList.remove('show');
   document.getElementById('login-page').style.display='flex';
@@ -1371,11 +1389,26 @@ function showToast(msg){
   t.textContent=msg;t.classList.add('show');
   clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2800);
 }
-(function restoreSession(){
+(async function restoreSession(){
   const saved = sessionStorage.getItem('ridehub_admin');
   if(!saved) return;
   try{
     const s = JSON.parse(saved);
+    if(!s.token){ sessionStorage.removeItem('ridehub_admin'); return; }
+
+    // ตรวจสอบ token กับ admin_sessions ใน DB
+    const {data:session, error} = await db.from('admin_sessions')
+      .select('id, expires_at')
+      .eq('token', s.token)
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if(error || !session){
+      // token หมดอายุหรือถูก revoke
+      sessionStorage.removeItem('ridehub_admin');
+      return;
+    }
+
     currentRole = s.role;
     showAdminPanel(s.name);
     applySidebarPerms();
