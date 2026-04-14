@@ -550,8 +550,8 @@ function renderOrders(data){
       <td style="font-weight:700;font-size:11px">${String(o.id).slice(0,8)}</td>
       <td><div class="uc"><div class="av">${(o.riders?.name||'?').slice(0,2)}</div>${o.riders?.name||'—'}</div></td>
       <td><span class="pill" style="${pc[o.platform]||''}">${o.platform||'—'}</span></td>
-      <td style="font-size:12px;color:var(--s700)">${(o.food_name||'').split('||')[0]||'—'}</td>
-      <td style="font-size:12px;color:var(--s500)">${((o.food_name||'').split('||')[1]||'—')!=='—'?(o.food_name||'').split('||')[1]+' กม.':'—'}</td>
+      <td style="font-size:12px;color:var(--s700)">${o.food_name||'—'}</td>
+      <td style="font-size:12px;color:var(--s500)">${o.distance?o.distance+' กม.':'—'}</td>
       <td style="font-weight:700;color:${o.status==='cancel'||o.status==='expired'?'var(--s400)':'var(--g)'}">฿${o.fee||0}</td>
       <td style="font-size:11px;color:var(--s400)">${new Date(o.created_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</td>
       <td><span class="pill ${o.status==='done'?'p-done':o.status==='accepted'?'p-prog':'p-cancel'}">${o.status==='done'?'เสร็จสิ้น':o.status==='accepted'?'🚴 กำลังส่ง':o.status==='cancelled'?'ยกเลิก':o.status==='pending'?'รอรับ':'—'}</span></td>
@@ -790,7 +790,7 @@ async function sendTestOrder(){
     const food=document.getElementById('so-food-'+n).value.trim()||'ร้านทดสอบ '+n;
     const fee=parseInt(document.getElementById('so-fee-'+n).value)||75;
     const dist=parseFloat(document.getElementById('so-dist-'+n).value)||3.0;
-    rows.push({rider_id:null, platform, food_name:food+'||'+dist, fee, status:'pending', created_at:new Date().toISOString()});
+    rows.push({rider_id:null, platform, food_name:food, distance:dist, fee, status:'pending', created_at:new Date().toISOString()});
   }
   const {error}=await db.from('orders').insert(rows);
   if(error){showToast('❌ ส่งไม่สำเร็จ: '+error.message);return}
@@ -1010,8 +1010,8 @@ let adminPendingChannel=null;
 function renderPendingRow(order){
   if(document.getElementById('apr-'+order.id)) return;
   const pc={Grab:'background:#e6f7ee;color:#007a35','LINE MAN':'background:#e6ffe6;color:#008000',ShopeeFood:'background:#fff0ed;color:#c0392b'};
-  const foodName=(order.food_name||'').split('||')[0]||'—';
-  const dist=((order.food_name||'').split('||')[1]||'');
+  const foodName=order.food_name||'—';
+  const dist=order.distance?String(order.distance):'';
 
   const row=document.createElement('div');
   row.className='pending-row';
