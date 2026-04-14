@@ -111,7 +111,7 @@ body{font-family:var(--font);background:#e8f0e9;display:flex;justify-content:cen
 .pcm-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .pcm-name{font-size:14px;font-weight:800}
 .pcm-price{font-size:17px;font-weight:800}
-.pcm-feat{font-size:11px;color:var(--gray-500);line-height:1.8}
+.pcm-feat{font-size:11px;color:var(--gray-500);line-height:1.8}.pcm-feat span{display:block}
 .pcm-feat .yes::before{content:'✓ ';color:var(--green)}
 .pcm-feat .no::before{content:'✕ ';color:var(--gray-300)}
 .badge-new{background:#ef4444;color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px}
@@ -144,8 +144,8 @@ body{font-family:var(--font);background:#e8f0e9;display:flex;justify-content:cen
 .pstat{background:rgba(255,255,255,.15);border-radius:10px;padding:8px;text-align:center}
 .profile-section{margin:0 16px 10px}
 .profile-section-title{font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
-.profile-row{background:#fff;border-radius:var(--r14);border:1px solid var(--gray-100);padding:12px 14px;margin-bottom:6px;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:space-between;cursor:pointer}
-.pr-left{display:flex;align-items:center;gap:10px}
+.profile-row{background:#fff;border-radius:var(--r14);border:1px solid var(--gray-100);padding:12px 14px;margin-bottom:6px;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:space-between;cursor:pointer;flex-wrap:nowrap;gap:8px}
+.pr-left{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
 .pr-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
 .plan-banner{margin:0 16px 12px;background:linear-gradient(135deg,var(--purple),#9333ea);border-radius:var(--r14);padding:14px;color:#fff;display:flex;align-items:center;justify-content:space-between}
 .plan-banner-btn{background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;font-family:var(--font);color:#fff;cursor:pointer;white-space:nowrap;flex-shrink:0}
@@ -921,19 +921,23 @@ function goToHome(){
   showScreen('screen-home');
 }
 
-function exportCSV(){
+async function exportCSV(){
   if(!currentRider){showToast('⚠️ กรุณาเข้าสู่ระบบก่อน');return;}
   const planKey=(currentRider.plan||'free').toLowerCase();
   if(planKey!=='premium'){
     showToast('⭐ ฟีเจอร์นี้สำหรับ Premium เท่านั้น');
     return;
   }
-  if(!historyCache||!historyCache.length){showToast('⚠️ ไม่มีข้อมูลประวัติ');return;}
+  showToast('⏳ กำลังโหลดข้อมูล...');
+  const {data,error} = await db.from('orders')
+    .select('*')
+    .eq('rider_id', currentRider.id)
+    .order('created_at',{ascending:false});
+  if(error||!data||!data.length){showToast('⚠️ ไม่มีข้อมูลประวัติ');return;}
   const headers=['Order ID','Platform','ร้านอาหาร','ระยะทาง (กม.)','ค่าส่ง (฿)','สถานะ','วันที่'];
-  const rows=historyCache.map(o=>{
-    const fnParts=(o.food_name||'').split('||');
-    const food='"'+(fnParts[0]||'—').replace(/"/g,'""')+'"';
-    const dist=fnParts[1]||'—';
+  const rows=data.map(o=>{
+    const food='"'+(o.food_name||'—').replace(/"/g,'""')+'"';
+    const dist=o.distance?String(o.distance):'—';
     const statusMap={accepted:'รับแล้ว',done:'เสร็จสิ้น',cancelled:'ยกเลิก',pending:'รอรับ'};
     const status=statusMap[o.status]||o.status;
     const date=new Date(o.created_at).toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -950,7 +954,7 @@ function exportCSV(){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showToast('✅ Export CSV สำเร็จ ('+historyCache.length+' รายการ)');
+  showToast('✅ Export CSV สำเร็จ ('+data.length+' รายการ)');
 }
 
 async function doLogout(){
@@ -1199,11 +1203,10 @@ const platLetterRT={Grab:'G',ShopeeFood:'S','LINE MAN':'M'};
 
 function renderOrderCard(order){
   if(document.getElementById('rt-'+order.id)) return;
-  // decode food_name||distance format
-  const fnParts=(order.food_name||'').split('||');
-  const foodName=fnParts[0]||'—';
-  const distKm=fnParts[1]?fnParts[1]+' กม.':'—';
-  const distNum=fnParts[1]||'';
+  // ใช้ column food_name และ distance แยก (3NF)
+  const foodName=order.food_name||'—';
+  const distKm=order.distance?order.distance+' กม.':'—';
+  const distNum=order.distance?String(order.distance):'';
   const fill=platFillRT[order.platform]||'#6b7280';
   const bg=platBgRT[order.platform]||'#f3f4f6';
   const dark=platDarkRT[order.platform]||'#374151';
@@ -1527,9 +1530,8 @@ function renderHistoryCards(data){
   const list=document.getElementById('history-list');
   if(!data||!data.length){list.innerHTML='<div style="text-align:center;padding:30px;color:var(--gray-400)">ไม่มีข้อมูล</div>';return;}
   list.innerHTML = data.map(o=>{
-    const fnParts=(o.food_name||'').split('||');
-    const foodName=fnParts[0]||'—';
-    const distKm=fnParts[1]?fnParts[1]+' กม.':'—';
+    const foodName=o.food_name||'—';
+    const distKm=o.distance?o.distance+' กม.':'—';
     const color=platColor[o.platform]||'#f3f4f6';
     const fill=platFill[o.platform]||'#6b7280';
     const letter=platLetter[o.platform]||'?';
