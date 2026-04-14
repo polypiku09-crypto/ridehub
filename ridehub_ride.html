@@ -567,6 +567,10 @@ body{font-family:var(--font);background:#e8f0e9;display:flex;justify-content:cen
             <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--gray-500)">ระยะทาง</span><span id="ao-dist" style="font-weight:600">—</span></div>
           </div>
         </div>
+        <div style="background:#fef9c3;border-radius:var(--r14);border:1px solid #fde68a;padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:3px">🔒 Smart Queue — Locked</div>
+          <div style="font-size:11px;color:#a16207">แพลตฟอร์มอื่นถูกระงับชั่วคราว จนกว่าจะส่งเสร็จ</div>
+        </div>
         <button class="btn-full" onclick="completeOrder()">✅ ยืนยันส่งสำเร็จ</button>
         <button style="width:100%;padding:12px;border-radius:10px;border:1.5px solid var(--gray-200);background:#fff;font-size:14px;font-weight:600;font-family:var(--font);color:var(--gray-500);cursor:pointer" onclick="cancelOrder()">ยกเลิกงานนี้</button>
       </div>
@@ -1088,14 +1092,21 @@ async function loadIncome(){
   });
 }
 
-let online=true;
+let online = true;
 async function toggleStatus(){
-  online=!online;
-  document.getElementById('home-dot').style.background=online?'var(--green)':'#9ca3af';
-  document.getElementById('home-txt').textContent=online?'พร้อมรับงาน':'หยุดรับงาน';
-  document.getElementById('home-txt').style.color=online?'var(--green-dark)':'#6b7280';
+  online = !online;
+  
+  document.getElementById('home-dot').style.background = online ? 'var(--green)' : '#9ca3af';
+  document.getElementById('home-txt').textContent = online ? 'พร้อมรับงาน' : 'หยุดรับงาน';
+  document.getElementById('home-txt').style.color = online ? 'var(--green-dark)' : '#6b7280';
+  
+  const refreshBtn = document.getElementById('refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.style.display = online ? 'flex' : 'none';
+  }
+
   if(currentRider){
-    await db.from('riders').update({online}).eq('id',currentRider.id);
+    await db.from('riders').update({online}).eq('id', currentRider.id);
   }
 }
 
@@ -1197,12 +1208,11 @@ const platBgRT={Grab:'var(--grab-bg)',ShopeeFood:'var(--sf-bg)','LINE MAN':'var(
 const platDarkRT={Grab:'var(--grab-dark)',ShopeeFood:'var(--sf-dark)','LINE MAN':'var(--lm-dark)'};
 const platLetterRT={Grab:'G',ShopeeFood:'S','LINE MAN':'M'};
 
-function renderOrderCard(order){
+function renderOrderCard(order, isNew = false){
   if(document.getElementById('rt-'+order.id)) return;
-  // ใช้ column food_name และ distance แยก (3NF)
+ 
   const foodName=order.food_name||'—';
   const distKm=order.distance?order.distance+' กม.':'—';
-  const distNum=order.distance?String(order.distance):'';
   const fill=platFillRT[order.platform]||'#6b7280';
   const bg=platBgRT[order.platform]||'#f3f4f6';
   const dark=platDarkRT[order.platform]||'#374151';
@@ -1243,7 +1253,9 @@ function renderOrderCard(order){
   document.getElementById('orders-list').prepend(card);
   checkEmpty();
   startOrderCountdown(card, order.id, order.created_at);
-  ringBell();
+  if (isNew) {
+    ringBell();
+  }
 }
 
 async function skipCardRT(card){
@@ -1255,29 +1267,60 @@ async function skipCardRT(card){
   await db.from('orders').delete().eq('id',orderId).eq('status','pending');
 }
 
-async function acceptOrderRT(card){
-  const orderId=card.dataset.orderId;
-  const platform=card.dataset.platform;
-  const food=card.dataset.food;
-  const fee=parseInt(card.dataset.fee)||0;
+async function acceptOrderRT(card) {
+  const btn = card.querySelector('.btn-accept');
+  const originalText = btn.textContent;
+  
+  btn.textContent = '⏳ กำลังรับ...';
+  btn.style.opacity = '0.7';
+  btn.style.pointerEvents = 'none';
 
-  document.querySelectorAll('#orders-list .order-card').forEach(c=>{
-    const oid=c.dataset.orderId;
-    if(oid&&orderTimers[oid]){clearInterval(orderTimers[oid]);delete orderTimers[oid];}
+  const orderId = card.dataset.orderId;
+  const platform = card.dataset.platform;
+  const food = card.dataset.food;
+  const fee = parseInt(card.dataset.fee) || 0;
+
+ 
+  const { data, error } = await db.from('orders')
+    .update({
+      status: 'accepted', 
+      rider_id: currentRider.id, 
+      accepted_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+    .eq('status', 'pending')
+    .select();
+
+  if (error || !data || data.length === 0) {
+    showToast('❌ รับงานไม่ทัน! ออเดอร์นี้ถูกรับไปแล้ว');
+    
+    if(orderTimers[orderId]){ clearInterval(orderTimers[orderId]); delete orderTimers[orderId]; }
+    card.style.transition = 'all .3s';
+    card.style.opacity = '0';
+    card.style.transform = 'translateX(40px)';
+    setTimeout(() => { card.remove(); checkEmpty(); }, 300);
+    
+    return;
+  }
+
+  document.querySelectorAll('#orders-list .order-card').forEach(c => {
+    const oid = c.dataset.orderId;
+    if(oid && orderTimers[oid]){ clearInterval(orderTimers[oid]); delete orderTimers[oid]; }
     c.remove();
   });
   checkEmpty();
 
-  activeId='rt-'+orderId;
-  const dist=card.dataset.dist;
-  activeOrderData={platform, food, price:'฿'+fee, dist:(dist!=='—'?dist+' กม.':'—'), orderId};
-  document.getElementById('ao-platform').textContent=platform;
-  document.getElementById('ao-food').textContent=food;
-  document.getElementById('ao-price').textContent='฿'+fee;
-  document.getElementById('ao-dist').textContent=activeOrderData.dist;
-  document.getElementById('ao-title').textContent='กำลังส่ง — '+food;
-  document.getElementById('ao-sub').textContent=platform+' · '+activeOrderData.dist;
-  await db.from('orders').update({status:'accepted', rider_id:currentRider.id, accepted_at:new Date().toISOString()}).eq('id',orderId).eq('status','pending');
+  activeId = 'rt-' + orderId;
+  const dist = card.dataset.dist;
+  activeOrderData = { platform, food, price: '฿'+fee, dist: (dist !== '—' ? dist + ' กม.' : '—'), orderId };
+  
+  document.getElementById('ao-platform').textContent = platform;
+  document.getElementById('ao-food').textContent = food;
+  document.getElementById('ao-price').textContent = '฿' + fee;
+  document.getElementById('ao-dist').textContent = activeOrderData.dist;
+  document.getElementById('ao-title').textContent = 'กำลังส่ง — ' + food;
+  document.getElementById('ao-sub').textContent = platform + ' · ' + activeOrderData.dist;
+  
   showScreen('screen-active');
 }
 
@@ -1304,7 +1347,7 @@ function subscribeOrders(){
       schema:'public',
       table:'orders'
     }, payload => {
-      if(payload.new.status==='pending') renderOrderCard(payload.new);
+      if(payload.new.status==='pending') renderOrderCard(payload.new, true);
     })
     .on('postgres_changes',{
       event:'UPDATE',
@@ -1317,7 +1360,8 @@ function subscribeOrders(){
       }
     })
     .subscribe();
-  loadPendingOrders();
+    
+  loadPendingOrders(); 
 }
 
 async function loadPendingOrders(){
@@ -1326,7 +1370,8 @@ async function loadPendingOrders(){
     .eq('status','pending')
     .order('created_at',{ascending:false})
     .limit(20);
-  if(data) data.forEach(renderOrderCard);
+  if(data) 
+    data.forEach(order => renderOrderCard(order, false));;
   checkEmpty();
 }
 
@@ -1496,9 +1541,29 @@ function ringBell(){
   } catch(e){}
 }
 function clearBellBadge(){
-  bellCount=0;
-  const badge=document.getElementById('bell-badge');
-  if(badge) badge.style.display='none';
+  bellCount = 0;
+  const badge = document.getElementById('bell-badge');
+  if(badge) badge.style.display = 'none';
+
+  switchTab2('home');
+
+  const list = document.getElementById('orders-list');
+  if(list) {
+    list.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    const firstCard = list.querySelector('.order-card');
+    if (firstCard) {
+      firstCard.style.transition = 'box-shadow 0.3s ease, transform 0.3s ease';
+      
+      firstCard.style.boxShadow = '0 0 0 4px var(--green-light), var(--shadow)';
+      firstCard.style.transform = 'scale(1.02)';
+    
+      setTimeout(() => {
+        firstCard.style.boxShadow = 'var(--shadow)';
+        firstCard.style.transform = 'scale(1)';
+      }, 600);
+    }
+  }
 }
 
 function filterHistory(plat){
