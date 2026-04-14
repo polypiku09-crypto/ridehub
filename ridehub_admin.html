@@ -774,7 +774,7 @@ function openSendOrderModal(){
   document.getElementById('modal-title').textContent='📦 ส่ง Order ทดสอบ (3 งานพร้อมกัน)';
   document.getElementById('modal-sub').textContent='จำลอง Notification จาก platform';
   document.getElementById('modal-body').innerHTML=
-    orderRow(1)+orderRow(2)+orderRow(3)+
+    orderRow(1)+orderRow(2)+orderRow(3);
   document.getElementById('modal-save-btn').textContent='ส่ง 3 Orders';
   document.getElementById('modal-save-btn').onclick = sendTestOrder;
   document.getElementById('editModal').classList.add('open');
