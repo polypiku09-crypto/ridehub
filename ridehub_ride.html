@@ -503,7 +503,7 @@ body{font-family:var(--font);background:#e8f0e9;display:flex;justify-content:cen
         <div style="display:inline-block;background:rgba(255,255,255,.2);padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;margin-top:8px" id="profile-plan">🆓 Free Plan</div>
         <div class="profile-stats">
           <div class="pstat"><div style="font-size:18px;font-weight:800;color:#fff" id="profile-orders">0</div><div style="font-size:9px;color:rgba(255,255,255,.7);margin-top:1px">📦 งานรวม</div></div>
-          <div class="pstat"><div style="font-size:18px;font-weight:800;color:#fff">98%</div><div style="font-size:9px;color:rgba(255,255,255,.7);margin-top:1px">✅ อัตราส่งสำเร็จ</div></div>
+          <div class="pstat"><div style="font-size:18px;font-weight:800;color:#fff" id="profile-success-rate">—%</div><div style="font-size:9px;color:rgba(255,255,255,.7);margin-top:1px">✅ อัตราส่งสำเร็จ</div></div>
         </div>
       </div>
       <div class="plan-banner" id="plan-upgrade-banner" onclick="openPlanModal()">
@@ -817,8 +817,14 @@ async function doRegister(){
     }]);
   }
   document.getElementById('recovery-section').style.display='block';
-  currentRider = {id:authData.user.id, name, email, phone:'0'+phone, plan: basicPlan?'basic':'free', orders:0, recovery_code:recoveryCode};
+  currentRider = {id:authData.user.id, name, email, phone:'0'+phone, plan: basicPlan?'basic':'free', orders:0, doneCount:0, cancelledCount:0, recovery_code:recoveryCode};
+  renderProfile();
+  subscribeOrders();
+  startBanCheck();
+  showSupportFab();
   showToast('สมัครสมาชิกสำเร็จ! 🎉 ได้รับ Basic Plan ฟรี 30 วัน');
+  // ไปหน้า home หลังจาก recovery code แสดงแล้ว
+  setTimeout(()=>goToHome(), 1800);
 }
 
 async function doLogin(){
@@ -865,10 +871,15 @@ async function doLogin(){
     .maybeSingle();
 
   // นับ orders
-  const {count:orderCount} = await db.from('orders')
-    .select('id', {count:'exact', head:true})
-    .eq('rider_id', riderData.id)
-    .eq('status', 'accepted');
+  const {count:doneCount} = await db.from('orders')
+    .select('id',{count:'exact',head:true})
+    .eq('rider_id',riderData.id)
+    .in('status',['accepted','done']);
+  const {count:cancelledCount} = await db.from('orders')
+    .select('id',{count:'exact',head:true})
+    .eq('rider_id',riderData.id)
+    .eq('status','cancelled');
+  const orderCount = doneCount||0;
 
   showLoading(false);
 
@@ -893,6 +904,8 @@ async function doLogin(){
     status: riderData.status,
     plan: planName,
     orders: orderCount || 0,
+    doneCount: doneCount || 0,
+    cancelledCount: cancelledCount || 0,
     recovery_code: authRow?.recovery_code || '—'
   };
   renderProfile();
@@ -987,6 +1000,12 @@ function renderProfile(){
   document.getElementById('profile-orders').textContent=r.orders||0;
   document.getElementById('profile-recovery-code').textContent=r.recovery_code||'—';
   document.getElementById('profile-sub-detail').textContent=planKey+' · ดูรายละเอียด';
+  // คำนวณ success rate จาก done / (done + cancelled)
+  const done=r.doneCount||0;
+  const cancelled=r.cancelledCount||0;
+  const total=done+cancelled;
+  const rateEl=document.getElementById('profile-success-rate');
+  if(rateEl){rateEl.textContent=total===0?'—%':Math.round((done/total)*100)+'%';}
   const exportBtn=document.getElementById('btn-export-csv');
   if(exportBtn) exportBtn.style.display=planKey==='premium'?'flex':'none';
   // แสดง/ซ่อน upgrade banner ตาม plan
@@ -1146,7 +1165,12 @@ async function completeOrder(){
       .eq('rider_id', currentRider.id);
     if(error){ showToast('❌ บันทึกไม่สำเร็จ: '+error.message); return; }
     currentRider.orders=(currentRider.orders||0)+1;
+    currentRider.doneCount=(currentRider.doneCount||0)+1;
     document.getElementById('profile-orders').textContent=currentRider.orders;
+    const _done=currentRider.doneCount||0;
+    const _total=_done+(currentRider.cancelledCount||0);
+    const _rateEl=document.getElementById('profile-success-rate');
+    if(_rateEl) _rateEl.textContent=_total===0?'—%':Math.round((_done/_total)*100)+'%';
   }
   if(activeId){const c=document.getElementById(activeId);if(c)c.remove();activeId=null;}
   activeOrderData=null;
@@ -1160,6 +1184,13 @@ async function cancelOrder(){
       .eq('id', activeOrderData.orderId)
       .eq('rider_id', currentRider.id);
     if(error){ showToast('❌ ยกเลิกไม่สำเร็จ: '+error.message); return; }
+    if(currentRider){
+      currentRider.cancelledCount=(currentRider.cancelledCount||0)+1;
+      const _done=currentRider.doneCount||0;
+      const _total=_done+currentRider.cancelledCount;
+      const _rateEl=document.getElementById('profile-success-rate');
+      if(_rateEl) _rateEl.textContent=_total===0?'—%':Math.round((_done/_total)*100)+'%';
+    }
   }
   if(activeId){const c=document.getElementById(activeId);if(c)c.remove();activeId=null;}
   activeOrderData=null; showScreen('screen-home');
@@ -1778,8 +1809,11 @@ function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
         .select('status,expired_at,plans(name,amount)')
         .eq('rider_id',uid).eq('status','active')
         .order('expired_at',{ascending:false}).limit(1).maybeSingle();
-      const {count:orderCount} = await db.from('orders')
-        .select('id',{count:'exact',head:true}).eq('rider_id',uid).eq('status','accepted');
+      const {count:doneCountR} = await db.from('orders')
+        .select('id',{count:'exact',head:true}).eq('rider_id',uid).in('status',['accepted','done']);
+      const {count:cancelledCountR} = await db.from('orders')
+        .select('id',{count:'exact',head:true}).eq('rider_id',uid).eq('status','cancelled');
+      const orderCount = doneCountR||0;
       // เช็ค expired_at สำหรับ session restore
       let restoredPlan = 'free';
       if(subRow){
@@ -1794,6 +1828,8 @@ function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
         ...rider,
         plan: restoredPlan,
         orders: orderCount||0,
+        doneCount: doneCountR||0,
+        cancelledCount: cancelledCountR||0,
         recovery_code: authRow?.recovery_code||'—'
       };
       renderProfile();
