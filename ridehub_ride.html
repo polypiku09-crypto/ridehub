@@ -967,6 +967,10 @@ async function exportCSV(){
 }
 
 async function doLogout(){
+  for(let id in orderTimers){
+    clearInterval(orderTimers[id]);
+    delete orderTimers[id];
+  }
   await db.auth.signOut();
   if(banCheckInterval) clearInterval(banCheckInterval);
   if(supportChannel){db.removeChannel(supportChannel);supportChannel=null;}
@@ -985,6 +989,7 @@ async function doLogout(){
   rb.style.opacity='0.5';rb.style.pointerEvents='none';
   showScreen('screen-login');
   switchTab('login');
+  
 }
 
 function renderProfile(){
@@ -1222,8 +1227,6 @@ function startOrderCountdown(card, orderId, createdAt){
       delete orderTimers[orderId];
       card.style.transition='all .4s';card.style.opacity='0';card.style.transform='scale(0.95)';
       setTimeout(()=>{card.remove();checkEmpty();},400);
-      // หมดเวลา → ลบออกจาก DB เลย ไม่เก็บ
-      db.from('orders').delete().eq('id',orderId).eq('status','pending');
     }
   }
   tick();
@@ -1384,6 +1387,19 @@ function subscribeOrders(){
       if(payload.new.status!=='pending'){
         const c=document.getElementById('rt-'+payload.new.id);
         if(c){c.style.transition='all .3s';c.style.opacity='0';setTimeout(()=>{c.remove();checkEmpty()},300);}
+      }
+    })
+    .on('postgres_changes',{
+      event:'DELETE', 
+      schema:'public',
+      table:'orders'
+    }, payload => {
+      const c=document.getElementById('rt-'+payload.old.id);
+      if(c){
+        // ถ้ามีออเดอร์ถูกลบจากระบบ ให้เคลียร์ Timer และลบออกจากหน้าจอ
+        if(orderTimers[payload.old.id]){ clearInterval(orderTimers[payload.old.id]); delete orderTimers[payload.old.id]; }
+        c.style.transition='all .3s';c.style.opacity='0';
+        setTimeout(()=>{c.remove();checkEmpty()},300);
       }
     })
     .subscribe();
@@ -1759,10 +1775,13 @@ function subscribeSupportRealtime(){
   supportChannel=db.channel('rider-support-'+currentRider.id)
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'support_messages',filter:'rider_id=eq.'+currentRider.id},
       payload=>{
-        appendSupportMsg(payload.new);
-        const box=document.getElementById('support-messages');
-        if(box) box.scrollTop=box.scrollHeight;
-        // if modal not open, bump badge
+        
+        if (payload.new.sender !== 'rider') {
+          appendSupportMsg(payload.new);
+          const box=document.getElementById('support-messages');
+          if(box) box.scrollTop=box.scrollHeight;
+        }
+
         if(!document.getElementById('supportModal').classList.contains('open')){
           if(payload.new.sender==='admin'){
             supportUnread++;
