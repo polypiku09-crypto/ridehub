@@ -7,6 +7,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+
+.spinner {
+  width: 40px; 
+  height: 40px;
+  border: 4px solid var(--s200);
+  border-top: 4px solid var(--g); 
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+@keyframes spin { 
+  0% { transform: rotate(0deg); } 
+  100% { transform: rotate(360deg); } 
+}
 :root{
   --g:#2E8B3F;--gd:#1a6b2a;--gl:#e8f5eb;--g5:#f0faf4;
   --s50:#f9fafb;--s100:#f3f4f6;--s200:#e5e7eb;--s300:#d1d5db;
@@ -212,7 +226,22 @@ tr:last-child td{border-bottom:none}
     <button class="login-btn" onclick="adminLogin()">เข้าสู่ระบบ</button>
   </div>
 </div>
-
+<!-- lond login -->
+<div class="modal-bg" id="login-loader">
+  <div class="confirm-box" style="text-align:center; padding: 32px 24px;">
+    <div class="spinner"></div>
+    <div style="font-size:16px; font-weight:700; color:var(--s900); margin-top:16px;">กำลังเข้าสู่ระบบ...</div>
+    <div style="font-size:13px; color:var(--s500); margin-top:4px;">กรุณารอสักครู่ ระบบกำลังตรวจสอบข้อมูล</div>
+  </div>
+</div>
+<!-- lond logout-->
+<div class="modal-bg" id="logout-loader">
+  <div class="confirm-box" style="text-align:center; padding: 32px 24px;">
+    <div class="spinner"></div>
+    <div style="font-size:16px; font-weight:700; color:var(--s900); margin-top:16px;">กำลังออกจากระบบ...</div>
+    <div style="font-size:13px; color:var(--s500); margin-top:4px;">กรุณารอสักครู่ ระบบกำลังล้างข้อมูลเพื่อความปลอดภัย</div>
+  </div>
+</div>
 <!-- ADMIN PANEL -->
 <div id="admin-page">
   <div class="sidebar">
@@ -259,9 +288,19 @@ tr:last-child td{border-bottom:none}
           <div class="stat-card"><div class="stat-ico" style="background:#ede9fe"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div><div class="stat-val" id="dash-subs">—</div><div class="stat-lbl">Subscribers</div><div class="stat-ch" id="dash-subs-ch">กำลังโหลด...</div></div>
         </div>
         <div class="table-card">
-          <div class="table-hd"><span class="table-hd-title">ออเดอร์ล่าสุด</span><span class="pill p-on" style="font-size:10px">● Live</span></div>
-          <table><thead><tr><th>Order ID</th><th>ไรเดอร์</th><th>Platform</th><th>ค่าส่ง</th><th>สถานะ</th></tr></thead>
-          <tbody id="dash-orders-tbody"><tr><td colspan="5" style="text-align:center;padding:20px;color:var(--s400)">กำลังโหลด...</td></tr></tbody></table>
+          <div class="table-hd" style="cursor: pointer; user-select: none; background: #fafafa;" onclick="toggleLatestOrders()">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="table-hd-title">ออเดอร์ล่าสุด</span>
+              <span class="pill p-on" style="font-size:10px">● Live</span>
+            </div>
+            <span id="latest-orders-icon" style="font-size: 11px; font-weight: 700; color: var(--s500);">▼ พับเก็บ</span>
+          </div>
+          <div id="latest-orders-content">
+            <table>
+              <thead><tr><th>Order ID</th><th>ไรเดอร์</th><th>Platform</th><th>ค่าส่ง</th><th>สถานะ</th></tr></thead>
+              <tbody id="dash-orders-tbody"><tr><td colspan="5" style="text-align:center;padding:20px;color:var(--s400)">กำลังโหลด...</td></tr></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- PENDING ORDERS LIVE -->
@@ -455,6 +494,19 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 <script>
+
+function toggleLatestOrders() {
+  const content = document.getElementById('latest-orders-content');
+  const icon = document.getElementById('latest-orders-icon');
+  
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    icon.innerHTML = '▼ พับเก็บ';
+  } else {
+    content.style.display = 'none';
+    icon.innerHTML = '▶ แสดง';
+  }
+}
 const SUPABASE_URL = 'https://famlzdoreiynhejgkxps.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_0xN3sVJwktqpxrU7tm6rfA_b3uu3Knz';
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -530,11 +582,32 @@ function renderRiders(data){
 async function loadOrders(){
   const {data,error} = await db.from('orders')
     .select('*, riders(name)')
-    .neq('status','pending')
     .order('created_at',{ascending:false})
     .limit(100);
+  
   if(error){showToast('❌ โหลด orders ไม่ได้');return}
-  ordersCache = (data||[]).filter(o=>o.status!=='pending');
+
+  const now = Date.now();
+  const expiredIds = [];
+
+  ordersCache = (data || []).filter(o => {
+    if (o.status === 'pending') {
+      const createdTime = new Date(o.created_at).getTime();
+      if (now - createdTime > 65000) {
+        expiredIds.push(o.id); 
+        return false; 
+      }
+    }
+    return true;
+  });
+
+  if (expiredIds.length > 0) {
+    db.from('orders')
+      .delete()
+      .in('id', expiredIds)
+      .then(() => console.log('ลบออเดอร์หมดอายุออกจากระบบสำเร็จ:', expiredIds));
+  }
+
   updateOrdersTabCounts();
   renderOrdersFiltered('');
   renderDashOrders(ordersCache.slice(0,5));
@@ -554,7 +627,7 @@ function renderOrders(data){
       <td style="font-size:12px;color:var(--s500)">${o.distance?o.distance+' กม.':'—'}</td>
       <td style="font-weight:700;color:${o.status==='cancel'||o.status==='expired'?'var(--s400)':'var(--g)'}">฿${o.fee||0}</td>
       <td style="font-size:11px;color:var(--s400)">${new Date(o.created_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</td>
-      <td><span class="pill ${o.status==='done'?'p-done':o.status==='accepted'?'p-prog':'p-cancel'}">${o.status==='done'?'เสร็จสิ้น':o.status==='accepted'?'🚴 กำลังส่ง':o.status==='cancelled'?'ยกเลิก':o.status==='pending'?'รอรับ':'—'}</span></td>
+      <td><span class="pill ${o.status==='done'?'p-done':o.status==='accepted'?'p-prog':o.status==='pending'?'p-sup':'p-cancel'}">${o.status==='done'?'เสร็จสิ้น':o.status==='accepted'?'🚴 กำลังส่ง':o.status==='cancelled'?'ยกเลิก':o.status==='pending'?'⏳ รอรับ':'—'}</span></td>
       <td style="display:flex;gap:4px">
         ${can('editOrders') ? `<button class="act-btn edit" onclick="editOrderStatus('${o.id}','${o.status}')">แก้ไข</button>` : '<span style="font-size:11px;color:var(--s300)">—</span>'}
         ${can('deleteOrders') ? `<button class="act-btn del" onclick="deleteOrderItem('${o.id}')">ลบ</button>` : ''}
@@ -698,30 +771,45 @@ async function adminLogin(){
   const password=document.getElementById('admin-password').value;
   if(!email||!password){showToast('❌ กรุณากรอกอีเมลและรหัสผ่าน');return}
 
+  // 1. เปิดแสดง Popup โหลด
+  const loader = document.getElementById('login-loader');
+  loader.classList.add('open');
+
   const {data:adminData,error} = await db.from('admin_users')
     .select('id,name,role')
     .eq('email',email)
     .single();
 
-  if(error||!adminData){showToast('❌ ไม่พบบัญชีนี้ในระบบ');return}
+  if(error||!adminData){
+    loader.classList.remove('open'); // ปิดโหลด
+    showToast('❌ ไม่พบบัญชีนี้ในระบบ');return;
+  }
 
   const {data:verified, error:verifyErr} = await db.rpc('verify_admin_password', {
     input_email: email,
     input_password: password
   });
-  if(verifyErr||!verified){showToast('❌ รหัสผ่านไม่ถูกต้อง');return}
+  
+  if(verifyErr||!verified){
+    loader.classList.remove('open'); // ปิดโหลด
+    showToast('❌ รหัสผ่านไม่ถูกต้อง');return;
+  }
 
   currentRole = adminData.role;
 
-  // สร้าง session token และบันทึกลง admin_sessions
+  // สร้าง session token
   const token = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(); // หมดอายุใน 8 ชั่วโมง
+  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
   const {error:sessionErr} = await db.from('admin_sessions').insert([{
     admin_id: adminData.id,
     token: token,
     expires_at: expiresAt
   }]);
-  if(sessionErr){ showToast('❌ สร้าง session ไม่สำเร็จ: '+sessionErr.message); return; }
+  
+  if(sessionErr){ 
+    loader.classList.remove('open'); // ปิดโหลด
+    showToast('❌ สร้าง session ไม่สำเร็จ: '+sessionErr.message); return; 
+  }
 
   sessionStorage.setItem('ridehub_admin', JSON.stringify({
     id: adminData.id,
@@ -730,10 +818,14 @@ async function adminLogin(){
     token: token
   }));
 
-  showAdminPanel(adminData.name);
-  applySidebarPerms();
+  // โหลดข้อมูลต่างๆ ของ Dashboard
   await Promise.all([loadRiders(),loadOrders(),loadSubs(),loadAdmins()]);
   subscribePendingDash();
+  
+  // 2. โหลดเสร็จแล้ว ปิด Popup โหลดและแสดงหน้าแอดมิน
+  loader.classList.remove('open');
+  showAdminPanel(adminData.name);
+  applySidebarPerms();
   showToast('✓ ยินดีต้อนรับ '+adminData.name);
 }
 
@@ -748,6 +840,9 @@ function showAdminPanel(name){
 }
 
 async function adminLogout(){
+  const loader = document.getElementById('logout-loader');
+  if(loader) loader.classList.add('open');
+
   const saved = sessionStorage.getItem('ridehub_admin');
   if(saved){
     try{
@@ -755,7 +850,11 @@ async function adminLogout(){
       if(s.token) await db.from('admin_sessions').delete().eq('token', s.token);
     } catch(e){}
   }
+  
   sessionStorage.removeItem('ridehub_admin');
+
+  if(loader) loader.classList.remove('open');
+
   document.getElementById('admin-page').classList.remove('show');
   document.getElementById('login-page').style.display='flex';
   document.getElementById('admin-email').value='';
@@ -1073,12 +1172,20 @@ function startAdminPendingTimer(orderId, createdAt){
       secsEl.textContent=remaining+'s';
       secsEl.style.color=remaining>30?'var(--g)':remaining>10?'var(--amber)':'var(--red)';
     }
-    if(remaining<=0){
+  if(remaining<=0){
       clearInterval(adminPendingTimers[orderId]);
       delete adminPendingTimers[orderId];
-      removePendingRow(orderId);
-      // ลบออเดอร์ที่ไม่มีไรเดอร์รับออกจาก DB อัตโนมัติ
-      db.from('orders').delete().eq('id',orderId).eq('status','pending');
+      removePendingRow(orderId); 
+      
+      db.from('orders')
+        .delete()
+        .eq('id', orderId)
+        .eq('status', 'pending')
+        .then(({error}) => {
+           if(!error) {
+              loadOrders(); 
+           }
+        });
     }
   }
   tick();
@@ -1124,14 +1231,23 @@ function subscribePendingDash(){
   adminPendingChannel=db.channel('admin-pending')
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders'},payload=>{
       if(payload.new.status==='pending') renderPendingRow(payload.new);
+      loadOrders(); 
     })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders'},payload=>{
       if(payload.new.status!=='pending'){
-        if(adminPendingTimers[payload.new.id]){clearInterval(adminPendingTimers[payload.new.id]);delete adminPendingTimers[payload.new.id];}
+        if(adminPendingTimers[payload.new.id]){
+          clearInterval(adminPendingTimers[payload.new.id]);
+          delete adminPendingTimers[payload.new.id];
+        }
         removePendingRow(payload.new.id);
       }
+      loadOrders(); 
+    })
+    .on('postgres_changes',{event:'DELETE',schema:'public',table:'orders'},payload=>{
+      loadOrders(); 
     })
     .subscribe();
+    
   refreshPendingDash();
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1268,11 +1384,12 @@ async function loadSupportInbox(){
     adminSupportChannel = db.channel('admin-support-all')
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'support_messages'},
         payload=>{
-          loadSupportInbox();
-          if(currentSupportRiderId===payload.new.rider_id){
-            appendAdminMsg(payload.new);
-            const box=document.getElementById('sc-messages');
-            if(box) box.scrollTop=box.scrollHeight;
+         if(currentSupportRiderId === payload.new.rider_id) {
+            if(payload.new.sender !== 'admin') {
+                appendAdminMsg(payload.new);
+                const box = document.getElementById('sc-messages');
+                if(box) box.scrollTop = box.scrollHeight;
+            }
           }
         })
       .subscribe();
